@@ -3,7 +3,6 @@
 ### Análisis exploratorio de datos
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 20-03-2026 11:48
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -13,17 +12,18 @@ pacman::p_load(
   geoAr,
   # Gráficos
   patchwork,
+  ggrepel,
   treemapify,
   scico,
   # Tablas
   gtsummary,
-  flextable,
   # Estadísticos
   PHEindicatormethods,
   glmmTMB,
   spdep,
+  easystats,
   # Manejo de datos
-  BAMMtools,
+  # BAMMtools,
   scales,
   rio,
   janitor,
@@ -68,7 +68,7 @@ shp_arg <- get_geo(geo = "ARGENTINA") |>
     )
   ) |>
 
-  ## Agrupar polígonos
+  ## Agrupar polígonos por jurisdicción
   group_by(jurisdiccion) |>
   summarise(geometry = st_union(geometry))
 
@@ -92,8 +92,39 @@ recod_defun |>
   mutate(pct = percent(n / sum(n), accuracy = 0.1))
 
 
-# Figura 2: Treeplots por paso -------------------------------------------
-## Frecuencias paso 1 -----
+## Tabla 1: Frecuencia defunciones por grupo causa y edad -----
+recod_defun |>
+  # Seleccionar variables
+  select(grupo_edad, grupo_causa, n) |>
+
+  # Recategorizar causas
+  mutate(
+    grupo_causa = if_else(
+      str_detect(grupo_causa, "GC"),
+      grupo_causa,
+      "Causas definidas"
+    )
+  ) |>
+
+  # Individualizar filas
+  uncount(weights = n) |>
+
+  # Tabla
+  tbl_cross(
+    row = grupo_edad,
+    col = grupo_causa,
+    percent = "row",
+    digits = c(0, 1),
+    margin = "row",
+    label = list(grupo_edad = "Grupo etario", grupo_causa = "Grupo de causas")
+  ) |>
+
+  add_p() |>
+  bold_labels()
+
+
+## Figura 2: Frecuencias por grupo causa -----
+### Frecuencias paso 1 -----
 fig2.1 <- recod_defun |>
   count(grupo_causa, wt = n) |>
   mutate(pct = n / sum(n)) |>
@@ -122,7 +153,7 @@ fig2.1 <- recod_defun |>
   )
 
 
-## Frecuencias paso 2 -----
+### Frecuencias paso 2 -----
 fig2.2 <- recod_defun |>
   count(grupo_causa = paso2.2, wt = n) |>
   mutate(pct = n / sum(n)) |>
@@ -151,7 +182,7 @@ fig2.2 <- recod_defun |>
   )
 
 
-## Unir gráficos
+### Unir gráficos -----
 (fig2.1 |>
   ggplot(aes(area = pct, subgroup = subgrupo1)) +
   theme(legend.position = "none")) /
@@ -165,7 +196,14 @@ fig2.2 <- recod_defun |>
   geom_treemap_subgroup_border() &
   geom_treemap_text(
     # aes(label = grupo_causa),
-    aes(label = paste0(grupo_causa, " (", percent(pct, .1), ")")),
+    aes(
+      label = paste0(
+        grupo_causa,
+        " (",
+        percent(pct, accuracy = .1, decimal.mark = ","),
+        ")"
+      )
+    ),
     place = "center",
     color = "white",
     fontface = "bold",
@@ -173,25 +211,17 @@ fig2.2 <- recod_defun |>
     reflow = TRUE
   ) &
 
-  # scale_fill_viridis_d(
-  #   option = "inferno",
-  #   begin = .1,
-  #   end = .6,
-  #   alpha = .5,
-  #   name = ""
-  # ) &
-
   scale_fill_scico_d(
     palette = "navia",
     begin = .15,
     end = .85,
     name = ""
   ) &
-  plot_annotation(tag_levels = "A") &
-  plot_layout()
+
+  plot_annotation(tag_levels = "A")
 
 
-## Guardar gráfico
+### Guardar gráfico -----
 ggsave(
   filename = "Figura2.png",
   width = 16,
@@ -200,7 +230,8 @@ ggsave(
   dpi = 300
 )
 
-## Cambio de frecuencias ----
+
+## Cambio de frecuencias paso 1 vs paso 2 -----
 fig2.1 |>
   select(grupo_causa, pct1 = pct) |>
   left_join(
@@ -211,33 +242,152 @@ fig2.1 |>
   mutate(cambio_fr = percent(pct2 - pct1, accuracy = .1))
 
 
-# Tasas de mortalidad por GC ---------------------------------------------
+# Evolución temporal muertes por GC --------------------------------------
 ## Dataset para las tasas -----
-dat <- recod_defun |>
+tasa_anio <- recod_defun |>
   # Filtrar muertes por GC
   filter(str_detect(grupo_causa, "GC")) |>
 
-  # Agrupar muertes
-  count(anio, jurisdiccion, grupo_edad, sexo, grupo_causa) |>
+  droplevels() |>
 
-  # Añadir proyecciones poblacionales y población estándar
+  # Agrupar muertes
+  count(anio, jurisdiccion, grupo_edad, sexo, grupo_causa, wt = n) |>
+
+  # Estandarizar año
+  mutate(anio_st = anio - 2010) |>
+
+  # Añadir población
   left_join(proy_pob_anio)
 
 
-## Tasa mortalidad estandarizada por año -----
-tasa_anio <- dat |>
+## GLMM con interacción -----
+m1 <- glmmTMB(
+  n ~ grupo_causa * anio_st + (1 | grupo_edad),
+  offset = log(proy_pob),
+  family = nbinom2,
+  data = tasa_anio
+)
+
+# Modelo sin interacción
+m1.1 <- update(m1, ~ . - grupo_causa:anio)
+
+# Comparar modelos
+compare_performance(m1, m1.1, rank = TRUE, metrics = c("AIC", "BIC"))
+
+# Análisis residuales
+check_overdispersion(m1)
+
+check_zeroinflation(m1)
+
+# Parámetros
+model_parameters(m1, exponentiate = TRUE)
+
+
+## Figura 3: Evolución temporal tasas GC -----
+tasa_anio |>
+  # Calcular tasa
   group_by(anio, grupo_causa) |>
   calculate_dsr(
     x = n,
     n = proy_pob,
     stdpop = pob_est_2022
-  )
+  ) |>
+
+  # Crear etiqueta tasas al inicio y fin del estudio
+  mutate(
+    value_ci = if_else(
+      anio %in% c(2010, 2023),
+      paste0(
+        number(value, accuracy = 0.1, decimal.mark = ","),
+        " (IC ",
+        number(lowercl, accuracy = 0.1, decimal.mark = ","),
+        "-",
+        number(uppercl, accuracy = 0.1, decimal.mark = ","),
+        ")"
+      ),
+      NA
+    )
+  ) |>
+
+  # Año a formato fecha
+  mutate(anio = make_date(anio)) |>
+
+  ### Gráfico
+  ggplot(aes(
+    x = anio,
+    y = value,
+    color = grupo_causa,
+    fill = grupo_causa,
+    group = grupo_causa
+  )) +
+
+  # Geometrías
+  geom_ribbon(
+    aes(ymin = lowercl, ymax = uppercl),
+    # alpha = 0.35,
+    color = NA
+  ) +
+  geom_line() +
+  # geom_point() +
+  geom_text_repel(
+    aes(label = value_ci),
+    vjust = c(rep(-1, 52), rep(2, 4)),
+    min.segment.length = 0,
+    size = 2.5,
+    color = "grey40"
+  ) +
+
+  # Escalas
+  scale_color_scico_d(
+    palette = "navia",
+    begin = .15,
+    end = .85,
+    name = ""
+  ) +
+
+  scale_fill_scico_d(
+    palette = "navia",
+    begin = .15,
+    end = .85,
+    alpha = .3,
+    name = ""
+  ) +
+
+  scale_x_date(
+    date_breaks = "2 years",
+    date_labels = "%Y"
+  ) +
+
+  scale_y_continuous(
+    limits = c(0, 125),
+    n.breaks = 7
+  ) +
+
+  # Layout
+  labs(
+    x = NULL,
+    y = "Tasa est.",
+    color = NULL
+  ) +
+  # coord_fixed(ratio = 100) +
+  theme_minimal()
 
 
-## Tasa mortalidad estandarizada por jurisdiccion -----
-tasa_jur <- shp_arg |>
+### Guardar gráfico ----
+ggsave(
+  filename = "Figura3.png",
+  width = 16,
+  height = 14,
+  units = "cm",
+  dpi = 300
+)
+
+
+# Distribución espacial --------------------------------------------------
+## Tasa estandarizada por jurisdicción ----
+tasa_esp <- shp_arg |>
   left_join(
-    dat |>
+    tasa_anio |>
       group_by(jurisdiccion, grupo_causa) |>
       calculate_dsr(
         x = n,
@@ -247,46 +397,72 @@ tasa_jur <- shp_arg |>
   )
 
 
-## Figura 3 -----
-### Tasas de mortalidad por año -----
-fig3.1 <- tasa_anio |>
-  # Año a formato fecha
-  mutate(anio = make_date(anio)) |>
-
-  ### Gráfico
-  ggplot(aes(
-    x = anio,
-    y = value,
-    color = grupo_causa,
-    group = grupo_causa
-  )) +
-
-  # Geomas
-  geom_line() +
-  geom_point() +
-
-  # Escalas
-  scale_color_scico_d(
-    palette = "navia",
-    begin = .15,
-    end = .85,
-    name = ""
-  ) +
-  # scale_color_viridis_d(option = "inferno", end = 0.85) +
-  scale_x_date(date_breaks = "2 years", date_labels = "%Y") +
-
-  # Layout
-  labs(
-    x = NULL,
-    y = "Tasa est.",
-    color = NULL
-  ) +
-  coord_fixed(ratio = 50) +
-  theme_minimal()
+## Test de Moran global (todos los GC) ----
+moran.test(
+  x = tasa_esp$value,
+  listw = poly2nb(tasa_esp) |> nb2listw(zero.policy = TRUE),
+  zero.policy = TRUE
+)
 
 
-### Tasas de mortalidad por jurisdicción -----
-fig3.2 <- tasa_jur |>
+### Test de Moran global (GC1) ----
+tasa_esp |>
+  filter(grupo_causa == "GC1") |>
+  (\(df) {
+    moran.test(
+      x = df$value,
+      listw = poly2nb(df) |> nb2listw(zero.policy = TRUE),
+      zero.policy = TRUE
+    )
+  })()
+
+
+### Test de Moran global (GC2) ----
+tasa_esp |>
+  filter(grupo_causa == "GC2") |>
+  (\(df) {
+    moran.test(
+      x = df$value,
+      listw = poly2nb(df) |> nb2listw(zero.policy = TRUE),
+      zero.policy = TRUE
+    )
+  })()
+
+
+### Test de Moran global (GC3) ----
+tasa_esp |>
+  filter(grupo_causa == "GC3") |>
+  (\(df) {
+    moran.test(
+      x = df$value,
+      listw = poly2nb(df) |> nb2listw(zero.policy = TRUE),
+      zero.policy = TRUE
+    )
+  })()
+
+
+### Test de Moran global (GC4) ----
+tasa_esp |>
+  filter(grupo_causa == "GC4") |>
+  (\(df) {
+    moran.test(
+      x = df$value,
+      listw = poly2nb(df) |> nb2listw(zero.policy = TRUE),
+      zero.policy = TRUE
+    )
+  })()
+
+
+## Índice de Moran local (Ii) -----
+tasa_esp <- tasa_esp |>
+  bind_cols(localmoran(
+    x = tasa_esp$value,
+    listw = poly2nb(tasa_esp, queen = TRUE) |> nb2listw()
+  ))
+
+## Figura 4 -----
+### Tasas estandarizadas ------
+fig4.1 <- tasa_esp |>
   # Mapa
   tm_shape() +
   tm_polygons(
@@ -310,60 +486,16 @@ fig3.2 <- tasa_jur |>
   tm_compass(position = tm_pos_out(pos.v = "bottom")) +
 
   # Layout
-  tm_facets_wrap(by = "grupo_causa", ncol = 2)
+  tm_facets_wrap(by = "grupo_causa", nrow = 1)
 
 
-### Unir gráficos -----
-fig3.1 /
-  wrap_elements(full = tmap_grob(fig3.2, asp = 0), clip = FALSE) +
-  plot_annotation(tag_levels = "A")
-
-
-## Guardar gráfico
-ggsave(
-  filename = "Figura3.png",
-  width = 16,
-  height = 19,
-  units = "cm",
-  dpi = 300
-)
-
-
-## Comparar tasas anuales -----
-m1 <- glmmTMB(
-  n ~ grupo_edad + grupo_causa * anio,
-  offset = log(proy_pob),
-  family = nbinom2,
-  data = dat |> mutate(anio = anio - 2010)
-)
-
-model_parameters(m1, exponentiate = TRUE)
-
-
-## Índice de Moran global -----
-moran.test(
-  x = tasa_jur$value,
-  listw = poly2nb(tasa_jur, queen = TRUE) |> nb2listw()
-)
-
-## Índice de Moran local -----
-localmoran(
-  x = tasa_jur$value,
-  listw = poly2nb(tasa_jur, queen = TRUE) |> nb2listw()
-)
-
-## Figura S3: índice de Moran local (Ii) -----
-tasa_jur |>
-  bind_cols(localmoran(
-    x = tasa_jur$value,
-    listw = poly2nb(tasa_jur, queen = TRUE) |> nb2listw()
-  )) |>
+### Índice de Moran local (Ii) -----
+fig4.2 <- tasa_esp |>
+  # Mapa
   tm_shape() +
   tm_polygons(
     fill = "Ii",
-    fill.scale = tm_scale_continuous(
-      values = c("#2c7bb6", "#ffffbf", "#d7191c")
-    ),
+    fill.scale = tm_scale_continuous(values = "-scico.navia"),
     fill_alpha = .75,
     fill.legend = tm_legend(
       position = tm_pos_out(),
@@ -379,16 +511,18 @@ tasa_jur |>
   tm_grid(lines = FALSE, n.y = 4, n.x = 5, ) +
 
   # Flecha del Norte
-  tm_compass() +
+  tm_compass(position = tm_pos_out(pos.v = "bottom")) +
 
-  tm_facets_wrap(by = "grupo_causa", ncol = 2)
+  # Layout
+  tm_facets_wrap(by = "grupo_causa", nrow = 1)
 
+### Unir gráficos ----
+tmap_arrange(fig4.1, fig4.2) |>
 
-## Guardar figura
-tmap_save(
-  filename = "FiguraS3.png",
-  width = 16,
-  height = 16,
-  units = "cm",
-  dpi = 300
-)
+  tmap_save(
+    filename = "Figura4.png",
+    width = 16,
+    height = 16,
+    units = "cm",
+    dpi = 300
+  )
