@@ -4,7 +4,7 @@
 ## - Proyecciones poblacionales por sexo y grupo etario quinquenal, 2010-2023 (INDEC)
 ## - Población estándar por sexo y grupo etario, Argentina, Censo 2022 (INDEC)
 ### Autora: Tamara Ricardo
-# Última modificación: 20-03-2026 10:34
+# Última modificación: 27-03-2026 13:44
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -23,7 +23,7 @@ proy_2010_2023_raw <- "raw/c2_proyecciones_prov_2010_2040.xls"
 
 
 ## Población estándar Censo 2022 -----
-pob_est_2022_raw <- import("raw/_tmp_60299141.xlsX", range = "B15:D38")
+pob_est_2022_raw <- import("raw/_tmp_60299141.xlsX", range = "B15:E38")
 
 
 # Crear etiquetas provincia y región -------------------------------------
@@ -175,7 +175,8 @@ pob_est_2022 <- pob_est_2022_raw |>
   rename(
     grupo_edad_5 = 1,
     Femenino = 2,
-    Masculino = 3
+    Masculino = 3,
+    pob_est_2022 = 4
   ) |>
 
   # Filtrar menores de 20 años
@@ -198,14 +199,19 @@ pob_est_2022 <- pob_est_2022_raw |>
     )
   ) |>
 
-  # Pasar a formato long
-  pivot_longer(cols = Femenino:Masculino, names_to = "sexo") |>
-
   # Población a numérico
-  mutate(value = parse_number(value)) |>
+  mutate(across(.cols = c(Femenino:pob_est_2022), .fns = ~ parse_number(.x))) |>
 
-  # Reagrupar por grupo etario ampliado
-  count(sexo, grupo_edad, wt = value, name = "pob_est_2022")
+  # Recalcular poblaciones
+  group_by(grupo_edad) |>
+  summarise(across(.cols = c(Femenino:pob_est_2022), .fns = ~ sum(.x))) |>
+
+  # Pasar a formato long
+  pivot_longer(
+    cols = Femenino:Masculino,
+    names_to = "sexo",
+    values_to = "pob_est_2022_sexo"
+  )
 
 
 # Estimar población mensual ----------------------------------------------
