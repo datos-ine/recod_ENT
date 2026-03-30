@@ -4,7 +4,7 @@
 ## - Proyecciones poblacionales por sexo y grupo etario quinquenal, 2010-2023 (INDEC)
 ## - Población estándar por sexo y grupo etario, Argentina, Censo 2022 (INDEC)
 ### Autora: Tamara Ricardo
-# Última modificación: 27-03-2026 13:44
+# Última modificación: 30-03-2026 13:12
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -34,34 +34,15 @@ cod_prov <- show_arg_codes() |>
   # Cambiar etiqueta CABA
   mutate(prov_nombre = if_else(codprov_censo == "02", id, name_iso)) |>
 
-  # Crear región geográfica DEIS
-  mutate(
-    region_deis = case_when(
-      # Región Centro: CABA, Buenos Aires, Córdoba, Entre Ríos, Santa Fe
-      codprov_censo %in% c("02", "06", "14", "30", "82") ~ "Centro",
-      # Región NEA: Corrientes, Chaco, Formosa, Misiones
-      codprov_censo %in% c("18", "22", "34", "54") ~ "NEA",
-      # Región NOA1: Jujuy, Salta
-      codprov_censo %in% c("38", "66") ~ "NOA1",
-      # Región NOA2: Catamarca, Santiago del Estero, Tucumán
-      codprov_censo %in% c("10", "86", "90") ~ "NOA2",
-      # Región Cuyo: Mendoza, La Rioja, San Juan, San Luis
-      codprov_censo %in% c("46", "50", "70", "74") ~ "Cuyo",
-      # Región Patagonia Norte: La Pampa, Neuquén, Río Negro
-      codprov_censo %in% c("42", "58", "62") ~ "Patagonia Norte",
-      # Región Patagonia Sur: Chubut, Santa Cruz, Tierra del Fuego
-      .default = "Patagonia Sur"
-    )
-  ) |>
-
   # Agrupar provincias poco pobladas en jurisdicciones
   mutate(
-    jurisdiccion = if_else(
-      region_deis %in%
-        c("NOA1", "NOA2", "Cuyo", "Patagonia Norte", "Patagonia Sur") &
-        !prov_nombre %in% c("Mendoza", "Tucumán"),
-      region_deis,
-      prov_nombre
+    jurisdiccion = case_when(
+      str_detect(prov_nombre, "Jujuy|Salta") ~ "NOA1",
+      str_detect(prov_nombre, "Cat|Est") ~ "NOA2",
+      str_detect(prov_nombre, "San |Rioja") ~ "Cuyo",
+      str_detect(prov_nombre, "Pampa|Neu|Río ") ~ "Patagonia Norte",
+      str_detect(prov_nombre, "Chubut|Cruz|Fue") ~ "Patagonia Sur",
+      .default = prov_nombre
     )
   )
 
@@ -122,14 +103,8 @@ proy_2010_2023 <- map(
     )
   ) |>
 
-  # Crear id numérico de provincia
-  mutate(codprov_censo = str_sub(codprov_censo, 1, 2)) |>
-
-  # Filtrar filas con NAs
-  drop_na() |>
-
-  # Filtrar totales
-  filter(grupo_edad_5 != "Total") |>
+  # Filtrar filas con NAs y totales
+  filter(!grupo_edad_5 %in% c(NA, "Total")) |>
 
   # Pasar a formato long
   pivot_longer(cols = c(Masculino_2010:Femenino_2023)) |>
@@ -148,19 +123,24 @@ proy_2010_2023 <- map(
       between(grupo_edad_5, "80-74", "95-99") |
         grupo_edad_5 == "100 y más" ~ "≥80 años",
       .default = "<20 años"
-    )
+    ) |>
+      # Ordenar niveles
+      fct_relevel("<20 años", after = 0) |>
+      fct_relevel("≥80 años", after = Inf)
   ) |>
 
   # Convertir año y población a numérico
   mutate(across(.cols = c(anio, value), .fns = ~ parse_number(.x))) |>
 
-  # Añadir etiquetas provincia y región DEIS
+  # ID de provincia a numérico
+  mutate(codprov_censo = str_remove_all(codprov_censo, "[^0-9]")) |>
+
+  # Añadir jurisdicción
   left_join(cod_prov) |>
 
   # Reagrupar datos
   count(
     anio,
-    region_deis,
     jurisdiccion,
     grupo_edad,
     sexo,
@@ -179,24 +159,25 @@ pob_est_2022 <- pob_est_2022_raw |>
     pob_est_2022 = 4
   ) |>
 
-  # Filtrar menores de 20 años
-  filter(
-    between(grupo_edad_5, "20 a 24", "95 a 99") |
-      grupo_edad_5 %in% c("100 a 104", "105 y más")
-  ) |>
+  # Filtrar filas vacías
+  drop_na() |>
 
   # Crear grupo etario ampliado
   mutate(
     grupo_edad = case_when(
-      between(grupo_edad_5, "20-24", "35-39") ~ "20-39 años",
-      between(grupo_edad_5, "40-44", "45-49") ~ "40-49 años",
-      between(grupo_edad_5, "50-54", "55-59") ~ "50-59 años",
-      between(grupo_edad_5, "60-64", "65-69") ~ "60-69 años",
-      between(grupo_edad_5, "70-74", "75-79") ~ "70-79 años",
-      between(grupo_edad_5, "80-74", "95-99") |
-        grupo_edad_5 == "100 y más" ~ "≥80 años",
+      between(grupo_edad_5, "20 a 24", "35 a 39") ~ "20-39 años",
+      between(grupo_edad_5, "40 a 44", "45 a 49") ~ "40-49 años",
+      between(grupo_edad_5, "50 a 54", "55 a 59") ~ "50-59 años",
+      between(grupo_edad_5, "60 a 64", "65 a 69") ~ "60-69 años",
+      between(grupo_edad_5, "70 a 74", "75 a 79") ~ "70-79 años",
+      between(grupo_edad_5, "80 a 74", "95 a 99") |
+        between(grupo_edad_5, "100 a 104", "105 y más") ~ "≥80 años",
       .default = "<20 años"
-    )
+    ) |>
+
+      # Ordenar niveles
+      fct_relevel("<20 años", after = 0) |>
+      fct_relevel("≥80 años", after = Inf)
   ) |>
 
   # Población a numérico
@@ -215,10 +196,10 @@ pob_est_2022 <- pob_est_2022_raw |>
 
 
 # Estimar población mensual ----------------------------------------------
-pob_mes_2010_2022 <- proy_2010_2023 |>
+pob_mes_2010_2023 <- proy_2010_2023 |>
   # Expandir dataset
   expand(
-    nesting(region_deis, jurisdiccion),
+    jurisdiccion,
     sexo,
     grupo_edad,
     fecha = seq.Date(
@@ -228,7 +209,7 @@ pob_mes_2010_2022 <- proy_2010_2023 |>
     )
   ) |>
 
-  # Crear columna para el año
+  # Crear columna para mes y año
   mutate(
     anio = year(fecha),
     mes = month(fecha)
@@ -241,7 +222,7 @@ pob_mes_2010_2022 <- proy_2010_2023 |>
   ) |>
 
   # Agrupar datos
-  group_by(region_deis, jurisdiccion, sexo, grupo_edad) |>
+  group_by(jurisdiccion, sexo, grupo_edad) |>
 
   # Ordenar por fecha
   arrange(fecha) |>
@@ -252,23 +233,23 @@ pob_mes_2010_2022 <- proy_2010_2023 |>
   ) |>
   ungroup() |>
 
-  # Añadir población estándar 2022
-  left_join(pob_est_2022) |>
-
   # Reordenar columnas
   select(
     anio,
     mes,
-    region_deis,
     jurisdiccion,
     sexo,
     grupo_edad,
-    contains("pob")
+    proy_pob_mes
   )
 
 
 # Exportar datos limpios -------------------------------------------------
-export(pob_mes_2010_2022, file = "clean/arg_pob_mensual_2010_2023.rds")
+## Población mensual
+export(pob_mes_2010_2023, file = "clean/arg_pob_mensual_2010_2023.rds")
+
+## Población estándar 2022
+export(pob_est_2022, file = "clean/arg_pob_est_2022.rds")
 
 
 # Limpiar environment ----------------------------------------------------
