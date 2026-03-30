@@ -296,16 +296,13 @@ ggsave(
 
 # Distribución espacial --------------------------------------------------
 ## Tasa estandarizada por jurisdicción -----
-tasa_esp_st <- shp_arg |>
-  left_join(
-    recod_defun |>
-      # Filtrar muertes por GC
-      filter(str_detect(grupo_causa, "GC")) |>
-      droplevels() |>
+tasa_esp_st <- recod_defun |>
+  # Filtrar muertes por GC
+  filter(str_detect(grupo_causa, "GC")) |>
+  droplevels() |>
 
-      # Agrupar muertes
-      count(jurisdiccion, grupo_causa, grupo_edad, wt = n)
-  ) |>
+  # Agrupar muertes
+  count(jurisdiccion, grupo_causa, grupo_edad, wt = n) |>
 
   # Añadir proyecciones poblacionales 2023
   left_join(
@@ -335,6 +332,12 @@ tasa_esp_st <- shp_arg |>
 
 
 ## Índice de Moran global -----
+### Objeto espacial
+tasa_esp_st <- left_join(
+  shp_arg,
+  tasa_esp_st
+)
+
 ### GC1 -----
 tasa_esp_st |>
   filter(grupo_causa == "GC1") |>
@@ -382,64 +385,18 @@ tasa_esp_st |>
 
 ## Índice de Moran local (Ii) -----
 tasa_esp_st <- tasa_esp_st |>
-  bind_cols(localmoran(
-    x = tasa_esp_st$value,
-    listw = poly2nb(tasa_esp_st, queen = TRUE) |> nb2listw()
-  ))
+  left_join(
+    tasa_esp_st |>
+      group_by(grupo_causa) |>
+      group_modify(\(df, key) {
+        lw <- poly2nb(df, queen = TRUE) |> nb2listw(zero.policy = TRUE)
+        cbind(df, localmoran(df$value, lw, zero.policy = TRUE))
+      }) |>
+      ungroup()
+  )
 
 
-## Test de Lee -----
-### GC1 -----
-tasa_esp_st |>
-  filter(grupo_causa == "GC1") |>
-  (\(x) {
-    lee.test(
-      x = x$total_count,
-      y = x$total_pop,
-      listw = poly2nb(x) |> nb2listw(zero.policy = TRUE),
-      zero.policy = TRUE
-    )
-  })()
-
-### GC2 -----
-tasa_esp_st |>
-  filter(grupo_causa == "GC2") |>
-  (\(x) {
-    lee.test(
-      x = x$total_count,
-      y = x$total_pop,
-      listw = poly2nb(x) |> nb2listw(zero.policy = TRUE),
-      zero.policy = TRUE
-    )
-  })()
-
-### GC3 -----
-tasa_esp_st |>
-  filter(grupo_causa == "GC3") |>
-  (\(x) {
-    lee.test(
-      x = x$total_count,
-      y = x$total_pop,
-      listw = poly2nb(x) |> nb2listw(zero.policy = TRUE),
-      zero.policy = TRUE
-    )
-  })()
-
-
-### GC4 -----
-tasa_esp_st |>
-  filter(grupo_causa == "GC4") |>
-  (\(x) {
-    lee.test(
-      x = x$total_count,
-      y = x$total_pop,
-      listw = poly2nb(x) |> nb2listw(zero.policy = TRUE),
-      zero.policy = TRUE
-    )
-  })()
-
-
-## Figura 3 -----
+# Figura 3 ---------------------------------------------------------------
 ### Tasas estandarizadas ------
 fig3.1 <- tasa_esp_st |>
   # Mapa
