@@ -3,7 +3,6 @@
 ### Análisis exploratorio de datos
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 30-03-2026 13:56
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -15,6 +14,7 @@ pacman::p_load(
   patchwork,
   ggrepel,
   treemapify,
+  DiagrammeR,
   scico,
   # Tablas
   gtsummary,
@@ -41,7 +41,19 @@ set_gtsummary_theme(list(
 
 # Cargar datos -----------------------------------------------------------
 ## Defunciones anuales por grupo de causas
-recod_defun <- import("clean/arg_defun_mes_2010-2022_recod.rds")
+recod_defun <- import("clean/arg_defun_mes_2010-2022_recod.rds") |>
+  # Crear subgrupo causas
+  mutate(
+    subgrupo = case_when(
+      str_detect(grupo_causa, "Dia|ECV|ERC|Neo|ENT") ~ "ENT",
+      str_detect(grupo_causa, "Hom|Sui|Trá|CE") ~ "CE",
+      str_detect(grupo_causa, "GC") ~ "GC",
+      grupo_causa == "CMNN" ~ "CMNN"
+    ) |>
+
+      # Ordenar niveles
+      fct_relevel("CE", "CMNN", after = 1)
+  )
 
 
 ## Proyecciones poblacionales anuales (2010-2022)
@@ -81,45 +93,37 @@ shp_arg <- get_geo(geo = "ARGENTINA") |>
 # Análisis exploratorio --------------------------------------------------
 ## Frecuencia defunciones por sexo
 recod_defun |>
-  count(sexo, wt = n) |>
+  count(sexo) |>
   mutate(pct = percent(n / sum(n), accuracy = 0.1))
 
 
 ## Frecuencia defunciones por grupo etario
 recod_defun |>
-  count(grupo_edad, wt = n) |>
-  mutate(pct = percent(n / sum(n), accuracy = 0.1))
-
-
-## Frecuencia defunciones por grupo de causas
-recod_defun |>
-  count(grupo_causa, wt = n) |>
+  count(grupo_edad) |>
   mutate(pct = percent(n / sum(n), accuracy = 0.1))
 
 
 # Tabla 1 ----------------------------------------------------------------
 ## Frecuencia defunciones por grupo causas y edad
 recod_defun |>
-  # Seleccionar variables
-  select(grupo_edad, grupo_causa, n) |>
-
-  # Recategorizar causas
+  # Cambiar niveles grupo_causa
   mutate(
     grupo_causa = if_else(
       str_detect(grupo_causa, "GC"),
       grupo_causa,
-      "Causas definidas"
-    )
+      subgrupo
+    ) |>
+      # Ordenar niveles
+      fct_drop() |>
+      fct_relevel("ENT", "CE")
   ) |>
-
-  # Individualizar filas
-  uncount(weights = n) |>
 
   # Tabla
   tbl_cross(
     row = grupo_edad,
     col = grupo_causa,
     percent = "row",
+    # statistic = "{p}%",
     digits = c(0, 1),
     margin = "row",
     label = list(grupo_edad = "Grupo etario", grupo_causa = "Grupo de causas")
@@ -131,13 +135,13 @@ recod_defun |>
 
 # Evolución temporal muertes por GC --------------------------------------
 ## Dataset para modelar tasas -----
-tasa_anio <- recod_defun |>
+datos <- recod_defun |>
   # Filtrar muertes por GC
-  filter(str_detect(grupo_causa, "GC")) |>
+  filter(subgrupo == "GC") |>
   droplevels() |>
 
   # Agrupar muertes
-  count(anio, jurisdiccion, grupo_edad, sexo, grupo_causa, wt = n) |>
+  count(anio, jurisdiccion, grupo_edad, sexo, grupo_causa) |>
 
   # Estandarizar año
   mutate(anio_st = scale(anio, center = TRUE, scale = FALSE)) |>
@@ -152,7 +156,7 @@ m1 <- glmmTMB(
   n ~ grupo_causa * anio_st + (1 | grupo_edad),
   offset = log(proy_pob_mes),
   family = nbinom2,
-  data = tasa_anio
+  data = datos
 )
 
 # Modelo sin interacción
@@ -183,7 +187,7 @@ tasa_anio_st <- recod_defun |>
   droplevels() |>
 
   # Agrupar muertes
-  count(anio, grupo_causa, grupo_edad, wt = n) |>
+  count(anio, grupo_causa, grupo_edad) |>
 
   # Añadir proyecciones poblacionales
   left_join(
@@ -228,7 +232,7 @@ tasa_anio_st <- recod_defun |>
   mutate(anio = make_date(anio))
 
 
-### Gráfico
+## Gráfico -----
 tasa_anio_st |>
   ggplot(aes(
     x = anio,
@@ -242,7 +246,7 @@ tasa_anio_st |>
   geom_ribbon(
     aes(ymin = lowercl, ymax = uppercl),
     color = NA,
-    alpha = 0.4
+    alpha = 0.5
   ) +
 
   geom_line() +
@@ -273,9 +277,8 @@ tasa_anio_st |>
     aesthetics = c("color", "fill"),
     values = scico(
       n = 4,
-      palette = "navia",
-      begin = .15,
-      end = .85
+      palette = "managua",
+      begin = .1
     ),
     name = NULL
   ) +
@@ -284,7 +287,7 @@ tasa_anio_st |>
   theme_minimal()
 
 
-### Guardar gráfico ----
+## Guardar gráfico ----
 ggsave(
   filename = "Figura2.png",
   width = 16,
@@ -302,7 +305,7 @@ tasa_esp_st <- recod_defun |>
   droplevels() |>
 
   # Agrupar muertes
-  count(jurisdiccion, grupo_causa, grupo_edad, wt = n) |>
+  count(jurisdiccion, grupo_causa, grupo_edad) |>
 
   # Añadir proyecciones poblacionales 2023
   left_join(
@@ -349,6 +352,7 @@ tasa_esp_st |>
     )
   })()
 
+
 ### GC2 -----
 tasa_esp_st |>
   filter(grupo_causa == "GC2") |>
@@ -360,6 +364,7 @@ tasa_esp_st |>
     )
   })()
 
+
 ### GC3 -----
 tasa_esp_st |>
   filter(grupo_causa == "GC3") |>
@@ -370,6 +375,7 @@ tasa_esp_st |>
       zero.policy = TRUE
     )
   })()
+
 
 ### GC4 -----
 tasa_esp_st |>
@@ -397,15 +403,13 @@ tasa_esp_st <- tasa_esp_st |>
 
 
 # Figura 3 ---------------------------------------------------------------
-### Tasas estandarizadas ------
+## Mapa tasas estandarizadas ------
 fig3.1 <- tasa_esp_st |>
   # Mapa
   tm_shape() +
   tm_polygons(
     fill = "value",
-    fill.scale = tm_scale_continuous(
-      values = "-scico.navia"
-    ),
+    fill.scale = tm_scale_continuous(values = "-scico.managua"),
     fill_alpha = .75,
     fill.legend = tm_legend(
       position = tm_pos_out(),
@@ -428,14 +432,14 @@ fig3.1 <- tasa_esp_st |>
   tm_title("Tasa estandarizada de mortalidad (100.000 hab.)", size = 1)
 
 
-### Índice de Moran local (Ii) -----
+## Mapa índice de Moran local -----
 fig3.2 <- tasa_esp_st |>
   # Mapa
   tm_shape() +
   tm_polygons(
     fill = "Ii",
     fill.scale = tm_scale_continuous(
-      values = "-scico.navia"
+      values = "-scico.managua"
     ),
     fill_alpha = .75,
     fill.legend = tm_legend(
@@ -459,128 +463,222 @@ fig3.2 <- tasa_esp_st |>
   tm_title("índice de Moran local (Ii)", size = 1)
 
 
-### Unir gráficos -----
-tmap_arrange(fig3.1, fig3.2) |>
+### Guardar mapa -----
+fig3 <- tmap_arrange(fig3.1, fig3.2)
 
-  tmap_save(
-    filename = "Figura3.png",
-    width = 16,
-    height = 16,
-    units = "cm",
-    dpi = 300
-  )
+tmap_save(
+  fig3,
+  filename = "Figura3.png",
+  width = 16,
+  height = 16,
+  units = "cm",
+  dpi = 300
+)
 
 
 # Figura 4 ---------------------------------------------------------------
-## Frecuencias por paso 1 y paso 2 -----
-dat_paso <- recod_defun |>
-  count(grupo_causa, wt = n, name = "n_1") |>
+## Frecuencias paso 1 -----
+tabyl(recod_defun, grupo_causa) |>
+  arrange(-n) |>
+  adorn_pct_formatting()
+
+
+## Frecuencias por paso -----
+datos <- recod_defun |>
+  count(subgrupo, grupo_causa, name = "n_1") |>
   mutate(pct_1 = prop.table(n_1)) |>
 
+  # Añadir frecuencias paso 2
   left_join(
     recod_defun |>
-      count(grupo_causa = paso2.2, wt = n, name = "n_2") |>
+      count(grupo_causa = paso2, name = "n_2") |>
       mutate(pct_2 = prop.table(n_2))
   ) |>
 
-  # Base long
-  pivot_longer(
-    cols = c(n_1, n_2, pct_1, pct_2)
+  # Añadir frecuencias paso 3
+  left_join(
+    recod_defun |>
+      count(grupo_causa = paso3, name = "n_3") |>
+      mutate(pct_3 = prop.table(n_3))
   ) |>
 
-  # Separar categorías
-  separate(name, into = c("name", "paso"), sep = "_") |>
+  # Añadir frecuencias paso 4
+  left_join(
+    recod_defun |>
+      count(grupo_causa = paso4, name = "n_4") |>
+      mutate(pct_4 = prop.table(n_4))
+  ) |>
+
+  # Base long
+  pivot_longer(cols = n_1:pct_4) |>
+
+  # Separar columnas
+  separate_wider_delim(cols = name, names = c("name", "paso"), delim = "_") |>
 
   # Volver a formato wide
   pivot_wider(names_from = name, values_from = value) |>
 
-  # Modificar niveles variables y crear subgrupos
+  # Crear etiquetas para %
+  mutate(pct_lab = percent(pct, accuracy = .1, decimal.mark = ",")) |>
+
+  # Ordenar niveles
   mutate(
-    grupo_causa = str_remove(grupo_causa, " mellitus"),
-
-    subgrupo1 = case_when(
-      str_detect(grupo_causa, "Dia|ECV|ERC|Neo|ENT") ~ "ENT",
-      str_detect(grupo_causa, "Hom|Sui|Trá|CE") ~ "CE",
-      str_detect(grupo_causa, "GC") ~ "GC",
-      grupo_causa == "CMNN" ~ "CMNN"
-    ),
-
-    subgrupo2 = if_else(
-      grupo_causa %in% c("Otras ENT", "Otras CE"),
-      grupo_causa,
-      subgrupo1
-    ) |>
-      factor(
-        levels = c("ENT", "Otras ENT", "CE", "Otras CE", "GC", "CMNN")
-      ),
-    .before = grupo_causa
-  ) |>
-
-  # Crear etiquetas para frecuencias
-  mutate(
-    pct_lab = paste0(
-      grupo_causa,
-      " (",
-      percent(pct, accuracy = .1, decimal.mark = ","),
-      ")"
-    )
+    grupo_causa = fct_relevel(grupo_causa, "Otras ENT", after = 4) |>
+      fct_relevel("Otras CE", after = 8)
   )
 
 
-## Crear gráfico
-dat_paso |>
+# # Crear etiquetas para frecuencias
+# mutate(
+#   pct_lab = paste0(
+#     grupo_causa,
+#     " (",
+#     percent(pct, accuracy = .1, decimal.mark = ","),
+#     ")"
+#   )
+# )
+
+## Gráfico -----
+datos |>
   ggplot(aes(
     area = pct,
-    subgroup = subgrupo1,
-    fill = subgrupo2,
+    subgroup = subgrupo,
+    fill = grupo_causa,
     label = pct_lab
   )) +
 
-  # Paneles
-  facet_wrap(
-    ~paso,
-    ncol = 1,
-    labeller = as_labeller(c(
-      "1" = "Paso 1: Categorización causas de muerte",
-      "2" = "Paso 2: Redistribución GC3, GC4 y neumonías inespecíficas"
-    ))
-  ) +
-
   # Geometrías
   geom_treemap() +
+
   geom_treemap_subgroup_border() +
+
   geom_treemap_text(
     place = "center",
     color = "white",
     fontface = "bold",
     size = 9,
+    min.size = 2,
     reflow = TRUE
   ) +
 
   # Escala de colores
+  # scale_fill_discrete_c4a_div(palette = "managua", reverse = TRUE) +
   scale_fill_scico_d(
-    palette = "navia",
-    begin = .15,
-    end = .85,
+    palette = "managua",
+    # direction = -1,
+    begin = .1,
     name = ""
+  ) +
+
+  # Paneles
+  facet_wrap(
+    ~paso,
+    ncol = 2,
+    labeller = as_labeller(c(
+      "1" = "Paso 1",
+      "2" = "Paso 2",
+      "3" = "Paso 3",
+      "4" = "Paso 4"
+    ))
   ) +
 
   # Layout
   theme(
     legend.position = "bottom",
     strip.background = element_blank(),
-    strip.text = element_text(size = 10, face = "bold")
+    strip.text = element_text(size = 9, face = "bold"),
+    plot.margin = margin(1, 1, 1, 1, "mm"),
+    axis.title = element_text(margin = margin(1)),
+    panel.spacing = unit(1, "mm")
   ) +
-  guides(fill = guide_legend(nrow = 1))
+  guides(fill = guide_legend(nrow = 2))
 
 
 ## Guardar gráfico -----
 ggsave(
   filename = "Figura4.png",
-  width = 16,
-  height = 19,
+  width = 18,
+  height = 21,
   units = "cm",
   dpi = 300
 )
 
-#### SEGUIR DESDE ACÁ#####
+
+# Figura 5 ---------------------------------------------------------------
+## Datos para el gráfico -----
+dat_paso <- recod_defun |>
+  count(anio, grupo_causa, name = "n_1") |>
+  mutate(pct_1 = prop.table(n_1), .by = anio) |>
+
+  # Añadir frecuencias paso 4
+  left_join(
+    recod_defun |>
+      count(anio, grupo_causa = paso4, name = "n_2") |>
+      mutate(pct_2 = prop.table(n_2), .by = anio)
+  ) |>
+
+  # Diferencia de frecuencias
+  mutate(dif_pct = pct_2 - pct_1) |>
+
+  # Quitar NAs
+  drop_na() |>
+
+  # Crear subgrupo de causas
+  mutate(
+    subgrupo = case_when(
+      str_detect(grupo_causa, "Dia|ECV|ERC|Neo") ~ "ENT",
+      str_detect(grupo_causa, "Hom|Sui|Trá") ~ "CE",
+      str_detect(grupo_causa, "GC") ~ "GC",
+      .default = "Otras CD"
+    )
+  )
+
+
+## Gráfico -----
+dat_paso |>
+  filter(!subgrupo %in% c("GC", "Otras CD")) |>
+  ggplot(aes(x = make_date(anio), y = dif_pct, fill = grupo_causa)) +
+
+  # Geometrías
+  geom_col(position = "dodge", color = "grey40") +
+
+  # Escalas ejes
+  scale_y_continuous(
+    name = "Incremento frecuencia",
+    labels = label_percent()
+  ) +
+
+  scale_x_date(
+    name = "Año",
+    date_breaks = "1 year",
+    date_labels = "%Y"
+  ) +
+
+  # Escalas color
+  scale_fill_scico_d(
+    name = "",
+    palette = "navia",
+    begin = .15,
+    end = .85
+  ) +
+
+  # Facets
+  facet_wrap(
+    ~subgrupo,
+    scales = "free"
+  ) +
+
+  # Layout
+  coord_flip() +
+  theme_minimal() +
+  theme(legend.position = "bottom")
+
+
+## Guardar gráfico ----
+ggsave(
+  filename = "Figura5.png",
+  width = 16,
+  height = 18,
+  units = "cm",
+  dpi = 300
+)

@@ -1,0 +1,138 @@
+---
+format:
+  html:
+    embed-resources: false
+---
+
+```{dot}
+#| label: Figura1
+#| fig-format: svg
+#| fig-dpi: 300
+#| fig-width: 7
+#| fig-height: 10
+
+digraph G {
+  graph[fontname="Calibri", ranksep=0.1];
+  node [shape=rect, style="filled", color=white, width=3,fontname="Calibri"];
+
+# Paso 1
+  subgraph cluster_1 {
+    style=filled;
+    color="#5F88C3BF";
+    label = "Paso 1";
+    a1[label = "Causas objetivo
+    Diabetes mellitus
+    Enf. cardiovascular (ECV)
+    Enf. respiratoria crónica (ERC)
+    Accidentes de tránsito
+    Homicidio
+    Suicidio"]
+    
+    b1[label = "Causas no objetivo
+    CMNN
+    Otras ENT
+    Otras CE"]
+
+    c1[label="Causas garbage (GC)
+    GC1
+    GC2
+    GC3
+    GC4"]
+    a1 -> b1 -> c1 [style="invis"]
+  }  
+
+# Paso 2
+  subgraph cluster_2 {
+    style=filled;
+    color="#4C3D72BF";
+    label = "Paso 2";
+    a2[label = "Causas objetivo
+    Diabetes mellitus
+    ECV
+    ERC
+    Accidentes de tránsito
+    Homicidio
+    Suicidio"]
+    
+    b2[label = "Causas no objetivo
+    CMNN
+    Otras ENT
+    Otras CE"]
+
+    d[label="Reasignar GC3 y GC4"]
+
+    e[label="Redistribuir neumonías inespecíficas:
+     50% a CMNN
+     50% proporcional por sexo y edad a ENT objetivo"]
+
+    c2[label="Causas garbage (GC)
+    GC1
+    GC2"]
+
+    a2 -> b2 -> d -> e -> c2 [style="invis"]
+  }
+
+# Paso 3
+subgraph cluster_3 {
+    style=filled;
+    color="#773339BF";
+    label = "Paso 3";
+    a3[label = "Causas objetivo
+    Diabetes mellitus
+    ECV
+    ERC
+    Accidentes de tránsito
+    Homicidio
+    Suicidio"]
+    
+    b3[label = "Causas no objetivo
+    CMNN
+    Otras ENT
+    Otras CE"]
+
+    f[label="Reasignar GC2 a ECV:
+    Hipertensión (I10, I15)
+    Cor pulmonale (I27)
+    Ateroesclerosis (I70)
+    Embolia arterial (I74)"]
+
+    g[label="Redistribuir GC2 
+    Específicos CE: proporcional CE por sexo y edad
+    Generales, X59 e Y34: proporcional por sexo y edad"]
+
+    c3[label="Causas garbage (GC)
+    GC1"]
+
+    a3 -> b3 -> f -> g -> c3 [style="invis"]
+  }
+
+  # Paso 4
+subgraph cluster_4 {
+    style=filled;
+    color="#C07348BF";
+    label = "Paso 4";
+    a4[label = "Causas objetivo
+    Diabetes mellitus
+    ECV
+    ERC
+    Accidentes de tránsito
+    Homicidio
+    Suicidio"]
+    
+    b4[label = "Causas no objetivo
+    CMNN
+    Otras ENT
+    Otras CE"]
+
+    h[label="Reasignar J96.1 a ERC"]
+
+    i[label="Redistribuir GC1:
+    Específicos CE: proporcional CE por sexo y edad
+    Generales, X59 e Y34: proporcional por sexo y edad"]
+
+
+    a4 -> b4 -> h -> i [style="invis"]
+  }
+  }
+
+```

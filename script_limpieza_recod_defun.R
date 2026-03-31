@@ -6,7 +6,7 @@
 ### según Teixeira et al. (2021), Soares Filho et al. (2024) y GBD (2019)
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 19-03-2026 10:41
+# Última modificación: 31-03-2026 10:18
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -145,7 +145,7 @@ recod_defun <- defun |>
       between(cie10_cod, "E10.0", "E10.1") |
         between(cie10_cod, "E10.3", "E11.1") |
         between(cie10_cod, "E11.3", "E11.9") |
-        cie10_cod == "P70.2" ~ "Diabetes mellitus",
+        cie10_cod == "P70.2" ~ "Diabetes",
 
       ### GC3: Diabetes mellitus
       # E08: No existe
@@ -155,7 +155,7 @@ recod_defun <- defun |>
         between(cie10_cod, "E12.3", "E13.1") |
         between(cie10_cod, "E13.3", "E14.1") |
         between(cie10_cod, "E14.3", "E14.9") |
-        between(cie10_cod, "R73.0", "R73.9") ~ "GC4-Diabetes mellitus",
+        between(cie10_cod, "R73.0", "R73.9") ~ "GC4-Diabetes",
 
       ### Valor por defecto
       .default = NA
@@ -1538,7 +1538,7 @@ recod_defun <- recod_defun |>
 
 # Reagrupar datos --------------------------------------------------------
 recod_defun <- recod_defun |>
-  count(
+  select(
     anio,
     mes,
     region_deis,
@@ -1546,13 +1546,9 @@ recod_defun <- recod_defun |>
     sexo,
     grupo_edad,
     grupo_causa,
-    paso1,
-    paso2.1,
-    paso2.2,
-    paso3.1,
-    paso3.2,
-    paso4.1,
-    paso4.2
+    paso2 = paso2.2,
+    paso3 = paso3.2,
+    paso4 = paso4.2
   ) |>
 
   # Ordenar grupos de causas
@@ -1574,7 +1570,6 @@ recod_defun <- recod_defun |>
 
 # Exportar datos limpios -------------------------------------------------
 export(recod_defun, file = "clean/arg_defun_mes_2010-2022_recod.rds")
-
 
 ## Limpiar environment ----
 rm(list = ls())
