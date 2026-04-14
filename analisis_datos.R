@@ -3,7 +3,7 @@
 ### Análisis exploratorio de datos
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 13-04-2026 14:50
+# Última modificación: 14-04-2026 09:33
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -17,6 +17,7 @@ pacman::p_load(
   scico,
   # Tablas
   gtsummary,
+  flextable,
   # Estadísticos
   PHEindicatormethods,
   ljr,
@@ -175,58 +176,81 @@ datos_jp <- recod_defun |>
 
 
 ## Regresión joinpoint -----
+# GC1
 m1 <- ljrb(K = 3, y = datos_jp$GC1_n, n = datos_jp$pob, tm = datos_jp$anio)
+
+# GC2
 m2 <- ljrb(K = 3, y = datos_jp$GC2_n, n = datos_jp$pob, tm = datos_jp$anio)
+
+# GC3
 m3 <- ljrb(K = 3, y = datos_jp$GC3_n, n = datos_jp$pob, tm = datos_jp$anio)
+
+# GC4
 m4 <- ljrb(K = 3, y = datos_jp$GC4_n, n = datos_jp$pob, tm = datos_jp$anio)
 
 
-## APC y AAPC -----
+## Función auxiliar para estimar APC y AAPC -----
 get_apc_segments <- function(model, years) {
+  # Coeficientes del modelo
   coefs <- model$Coef
 
-  # Pendiente base + incrementos en joinpoints
-  slopes <- c(coefs["t"], coefs[str_detect(names(coefs), "max")])
-  slopes <- cumsum(slopes)
+  # Intervalos
+  breaks <- c(min(years), sort(model$Joinpoints), max(years))
 
-  # Joinpoints ordenados
-  jp <- sort(model$Joinpoints)
-
-  # Intervalos (IMPORTANTE: usar +1 si querés años completos)
-  breaks <- c(min(years), jp, max(years))
-
-  # Duración de cada segmento
-  inicio <- head(breaks, -1)
-  fin <- tail(breaks, -1)
-  duracion <- fin - inicio
-
-  # APC por segmento
-  apc <- (exp(slopes) - 1) * 100
-
+  # Tabla
   tibble(
-    inicio = inicio,
-    fin = fin,
-    duracion = duracion,
-    APC = apc
+    inicio = head(breaks, -1),
+    fin = tail(breaks, -1),
+    duracion = fin - inicio,
+    beta = cumsum(
+      c(coefs["t"], coefs[str_detect(names(coefs), "max")])
+    ),
+    APC = exp(beta) - 1,
+    AAPC = if_else(
+      inicio == min(years),
+      sum(APC * duracion) / sum(duracion),
+      NA
+    )
   )
 }
 
-apc_m1 <- get_apc_segments(model = m1, years = datos_jp$anio)
-apc_m1
-sum(apc_m1$APC * apc_m1$duracion) / sum(apc_m1$duracion)
 
-apc_m2 <- get_apc_segments(model = m2, years = datos_jp$anio)
-apc_m2
-sum(apc_m2$APC * apc_m2$duracion) / sum(apc_m2$duracion)
+## Tabla S2: Resultados joinpoint -----
+tab <- bind_rows(
+  # GC1
+  get_apc_segments(model = m1, years = datos_jp$anio),
+  # GC2
+  get_apc_segments(model = m2, years = datos_jp$anio),
+  # GC3
+  get_apc_segments(model = m3, years = datos_jp$anio),
+  # GC4
+  get_apc_segments(model = m4, years = datos_jp$anio),
+  .id = c("nivel")
+) |>
 
-apc_m3 <- get_apc_segments(model = m3, years = datos_jp$anio)
-apc_m3
-sum(apc_m3$APC * apc_m3$duracion) / sum(apc_m3$duracion)
+  # Etiquetas niveles
+  mutate(nivel = fct_relabel(nivel, ~ c("GC1", "GC2", "GC3", "GC4"))) |>
 
-apc_m4 <- get_apc_segments(model = m4, years = datos_jp$anio)
-apc_m4
-sum(apc_m4$APC * apc_m4$duracion) / sum(apc_m4$duracion)
+  # Formato columnas años
+  mutate(across(
+    .cols = c(inicio:duracion),
+    .fns = ~ number(.x, accuracy = 1, big.mark = "")
+  )) |>
 
+  # Formato beta
+  mutate(beta = number(beta, accuracy = .001, decimal.mark = ",")) |>
+
+  # Formato columnas frecuencias
+  mutate(across(
+    .cols = c(APC, AAPC),
+    .fns = ~ percent(.x, accuracy = .1, decimal.mark = ",")
+  )) |>
+
+  # Formato de tabla
+  flextable() |>
+  merge_v(j = 1)
+
+tab
 
 # Figura 2 ---------------------------------------------------------------
 # Joinpoints GC1
@@ -328,3 +352,5 @@ ggsave(
   units = "cm",
   dpi = 300
 )
+
+# Distribución espacial muertes GC ---------------------------------------
