@@ -3,7 +3,7 @@
 ### Análisis exploratorio de datos
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 14-04-2026 09:33
+# Última modificación: 14-04-2026 12:52
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -139,7 +139,7 @@ recod_defun |>
 
 
 # Evolución temporal tasas GC --------------------------------------------
-## Tasas de mortalidad estandarizadas
+## Dataset tasas estandarizadas anuales -----
 datos_jp <- recod_defun |>
   # Filtrar muertes por GC
   filter(str_detect(grupo_causa, "GC")) |>
@@ -215,7 +215,7 @@ get_apc_segments <- function(model, years) {
 }
 
 
-## Tabla S2: Resultados joinpoint -----
+# Tabla 2 ----------------------------------------------------------------
 tab <- bind_rows(
   # GC1
   get_apc_segments(model = m1, years = datos_jp$anio),
@@ -234,7 +234,7 @@ tab <- bind_rows(
   # Formato columnas años
   mutate(across(
     .cols = c(inicio:duracion),
-    .fns = ~ number(.x, accuracy = 1, big.mark = "")
+    .fns = ~ number(.x, accuracy = .1, big.mark = "", decimal.mark = ",")
   )) |>
 
   # Formato beta
@@ -252,18 +252,22 @@ tab <- bind_rows(
 
 tab
 
+
 # Figura 2 ---------------------------------------------------------------
-# Joinpoints GC1
+## Paleta colorblind-friendly
+pal <- scico(n = 4, palette = "managua", begin = .1, end = .9)
+
+## Joinpoints GC1
 g1 <- datos_jp |>
   ggplot(aes(x = anio, y = GC1_tasa)) +
 
   # Geometrías
   geom_point(
     size = 3.5,
-    color = "#FFCE66BF"
+    color = pal[1]
   ) +
 
-  geom_line(color = "#FFCE66BF") +
+  geom_line(color = pal[1]) +
 
   geom_vline(
     xintercept = m1$Joinpoints,
@@ -280,9 +284,9 @@ g2 <- datos_jp |>
   # Geometrías
   geom_point(
     size = 3.5,
-    color = "#92463ABF"
+    color = pal[2]
   ) +
-  geom_line(color = "#92463ABF") +
+  geom_line(color = pal[2]) +
   geom_vline(
     xintercept = m2$Joinpoints,
     color = "darkgrey",
@@ -299,9 +303,9 @@ g3 <- datos_jp |>
   # Geometrías
   geom_point(
     size = 3.5,
-    color = "#4D5492BF"
+    color = pal[3]
   ) +
-  geom_line(color = "#4D5492BF") +
+  geom_line(color = pal[3]) +
   geom_vline(
     xintercept = m3$Joinpoints,
     color = "darkgrey",
@@ -318,9 +322,9 @@ g4 <- datos_jp |>
   # Geometrías
   geom_point(
     size = 3.5,
-    color = "#80E6FFBF"
+    color = pal[4]
   ) +
-  geom_line(color = "#80E6FFBF") +
+  geom_line(color = pal[4]) +
   geom_vline(
     xintercept = m4$Joinpoints,
     color = "darkgrey",
@@ -330,7 +334,7 @@ g4 <- datos_jp |>
   labs(title = "GC4", y = NULL)
 
 
-## Unir gráficos -----
+## Unir paneles -----
 g1 +
   g2 +
   g3 +
@@ -353,4 +357,69 @@ ggsave(
   dpi = 300
 )
 
+
 # Distribución espacial muertes GC ---------------------------------------
+## Dataset para análisis espacial -----
+datos_esp <- recod_defun |>
+  # Filtrar muertes por GC
+  filter(str_detect(grupo_causa, "GC")) |>
+  droplevels() |>
+
+  # Contar muertes por año
+  count(anio, jurisdiccion, grupo_edad, grupo_causa, .drop = FALSE) |>
+
+  # Crear variable para el período
+  mutate(
+    periodo = case_when(
+      between(anio, 2010, 2014) ~ "2010-2014",
+      between(anio, 2015, 2019) ~ "2015-2019",
+      .default = "2020-2023"
+    )
+  ) |>
+
+  # Unir con proyecciones poblacionales
+  left_join(
+    proy_pob_anio |>
+      # Agrupar datos
+      count(anio, jurisdiccion, grupo_edad, wt = proy_pob_mes, name = "pob")
+  ) |>
+
+  # Calcular población por período
+  mutate(
+    pob_p = max(pob, na.rm = TRUE),
+    .by = c(periodo, jurisdiccion, grupo_edad)
+  ) |>
+
+  # Añadir población estándar
+  left_join(pob_est_2022) |>
+
+  # Calcular tasa
+  mutate(tasa = n / pob_p) |>
+
+  # Calcular muertes esperadas
+  mutate(n_esp = tasa * pob_est_2022) |>
+
+  # Agrupar datos
+  group_by(periodo, jurisdiccion, grupo_causa) |>
+  summarise(
+    n = sum(n, na.rm = TRUE),
+    n_esp = sum(n_esp, na.rm = TRUE),
+    pob_p = sum(pob_p) / 5
+  )
+
+# Calcular EBL
+(\(df) {
+  bind_cols(
+    df,
+    EBlocal(
+      ri = df$n_obs,
+      ni = df$n_esp,
+      nb = poly2nb(df, queen = TRUE)
+    )
+  )
+})() |>
+
+  # Tasa estandarizada
+  mutate(
+    tasa_est = number(est, scale = 100000, big.mark = "", decimal.mark = ",")
+  )

@@ -4,7 +4,7 @@
 ## - Proyecciones poblacionales por sexo y grupo etario quinquenal, 2010-2023 (INDEC)
 ## - Población estándar por sexo y grupo etario, Argentina, Censo 2022 (INDEC)
 ### Autora: Tamara Ricardo
-# Última modificación: 30-03-2026 13:12
+# Última modificación: 14-04-2026 12:52
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -57,6 +57,9 @@ proy_2010_2023 <- map(
 ) |>
   list_cbind() |>
 
+  # Eliminar columnas vacías
+  remove_empty("cols") |>
+
   # Estandarizar nombres de columnas
   clean_names() |>
 
@@ -64,42 +67,17 @@ proy_2010_2023 <- map(
   select(
     codprov_censo = prov_1,
     grupo_edad_5 = edad_2,
-    x4,
-    x5,
-    x8,
-    x9,
-    x12,
-    x13,
-    x16,
-    x17,
-    x20,
-    x21,
-    x24,
-    x25,
-    x29,
-    x30,
-    x33,
-    x34,
-    x37,
-    x38,
-    x41,
-    x42,
-    x45,
-    x46,
-    x49,
-    x50,
-    x54,
-    x55,
-    x58,
-    x59
+    x2010:x25,
+    x2016:x50,
+    x2022:x59
   ) |>
 
   # Renombrar columnas
   rename_with(
-    .cols = c(x4:x59),
+    .cols = c(x2010:x59),
     .fn = ~ paste0(
-      rep(c("Masculino_", "Femenino_"), length(.x) / 2),
-      rep(2010:2023, each = 2)
+      rep(c("Total_", "Masculino_", "Femenino_"), length(.x) / 3),
+      rep(2010:2023, each = 3)
     )
   ) |>
 
@@ -107,8 +85,7 @@ proy_2010_2023 <- map(
   filter(!grupo_edad_5 %in% c(NA, "Total")) |>
 
   # Pasar a formato long
-  pivot_longer(cols = c(Masculino_2010:Femenino_2023)) |>
-
+  pivot_longer(cols = c(Total_2010:Femenino_2023)) |>
   # Separar año y sexo
   separate_wider_delim(name, delim = "_", names = c("sexo", "anio")) |>
 
