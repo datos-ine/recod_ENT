@@ -6,7 +6,7 @@
 ### según Teixeira et al. (2021), Soares Filho et al. (2024) y GBD (2019)
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 31-03-2026 10:18
+# Última modificación: 17-04-2026 13:35
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -1274,21 +1274,27 @@ recod_defun <- recod_defun |>
 # Paso 2: Redistribuir GC3 y GC4 -----------------------------------------
 ## Paso 2.1: Reasignar GC3-GC4 específicos -----
 recod_defun <- recod_defun |>
-  # Crear variable para grupo de causas
+  # Crear variables para grupo y subgrupo causas
   mutate(
-    grupo_causa = if_else(
+    grupo_n1 = case_when(
+      str_detect(paso1, "GC") ~ "GC",
+      str_detect(paso1, "Dia|ECV|ERC|Neo|ENT") ~ "ENT",
+      str_detect(paso1, "Hom|Sui|Trá|CE") ~ "CE",
+      .default = paso1
+    ),
+
+    grupo_n2 = if_else(
       str_detect(paso1, "GC|CE"),
       str_remove(paso1, "-.*"),
       paso1
-    ),
-    .before = paso1
+    )
   ) |>
 
   # Reasignar GC3 y GC4
   mutate(
     paso2.1 = case_when(
       ## Reagrupar GC
-      str_detect(paso1, "Neum|GC1|GC2") ~ grupo_causa,
+      str_detect(paso1, "Neum|GC1|GC2") ~ grupo_n1,
 
       ## Asignar GC3 y GC4 específicos
       str_detect(paso1, "GC3-|GC4-") ~ str_remove(paso1, ".*-"),
@@ -1545,31 +1551,34 @@ recod_defun <- recod_defun |>
     jurisdiccion,
     sexo,
     grupo_edad,
-    grupo_causa,
-    paso2 = paso2.2,
-    paso3 = paso3.2,
-    paso4 = paso4.2
+    grupo_n1,
+    grupo_n2,
+    grupo_n2_p2 = paso2.2,
+    grupo_n2_p3 = paso3.2,
+    grupo_n2_p4 = paso4.2
   ) |>
 
-  # Ordenar grupos de causas
+  # Ordenar causas nivel 2
   mutate(across(
-    .cols = contains(c("causa", "paso")),
+    .cols = contains("_n2"),
     .fns = ~ fct_relevel(
       .x,
+      "Diabetes",
+      "ECV",
+      "ERC",
       "Neoplasias",
+      "Otras ENT",
       "Homicidio",
       "Suicidio",
       "Tránsito",
-      "CMNN",
-      "Otras ENT",
       "Otras CE",
-      after = 3
+      "CMNN"
     )
   ))
 
 
 # Exportar datos limpios -------------------------------------------------
-export(recod_defun, file = "clean/arg_defun_mes_2010-2022_recod.rds")
+export(recod_defun, file = "clean/arg_defun_mes_2010-2023_recod.rds")
 
 ## Limpiar environment ----
 rm(list = ls())
