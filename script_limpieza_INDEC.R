@@ -4,7 +4,7 @@
 ## - Proyecciones poblacionales por sexo y grupo etario quinquenal, 2010-2023 (INDEC)
 ## - Población estándar por sexo y grupo etario, Argentina, Censo 2022 (INDEC)
 ### Autora: Tamara Ricardo
-# Última modificación: 15-04-2026 10:36
+# Última modificación: 21-04-2026 12:44
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -90,14 +90,24 @@ proy_2010_2023 <- map(
   # Descartar filas con NAs y totales
   filter_out(edad_2 %in% c("Total", NA)) |>
 
+  # Crear región DEIS
+  mutate(
+    region_deis = case_when(
+      str_detect(prov_1, "02|06|14|30|82") ~ "Centro",
+      str_detect(prov_1, "18|22|34|54") ~ "NEA",
+      str_detect(prov_1, "38|66|90") ~ "NOA1",
+      str_detect(prov_1, "10|86") ~ "NOA2",
+      str_detect(prov_1, "46|50|70|74") ~ "Cuyo",
+      str_detect(prov_1, "42|58|62") ~ "Patagonia Norte",
+      str_detect(prov_1, "26|78|94") ~ "Patagonia Sur"
+    )
+  ) |>
+
   # Crear jurisdicción DEIS
   mutate(
     jurisdiccion = case_when(
-      str_detect(prov_1, "JUJUY|SALTA") ~ "NOA1",
-      str_detect(prov_1, "CATAMARCA|ESTERO") ~ "NOA2",
-      str_detect(prov_1, "SAN |RIOJA") ~ "Cuyo",
-      str_detect(prov_1, "PAMPA|NEUQUÉN|NEGRO") ~ "Patagonia Norte",
-      str_detect(prov_1, "CHUBUT|SANTA CRUZ|FUEGO") ~ "Patagonia Sur",
+      str_detect(region_deis, "Cuyo|NOA1|NOA2|Pat") &
+        !str_detect(prov_1, "50|90") ~ region_deis,
       prov_1 == "02-CABA" ~ "CABA",
       .default = str_sub(prov_1, 4) |>
         str_to_title()
@@ -129,6 +139,7 @@ proy_2010_2023 <- map(
 
   # Agrupar datos
   count(
+    region_deis,
     jurisdiccion,
     anio = parse_number(anio),
     sexo,
@@ -142,7 +153,7 @@ proy_2010_2023 <- map(
 proy_mes_2010_2023 <- proy_2010_2023 |>
   # Expandir dataset
   expand(
-    jurisdiccion,
+    nesting(region_deis, jurisdiccion),
     sexo,
     grupo_edad,
     fecha = seq(
@@ -174,7 +185,7 @@ proy_mes_2010_2023 <- proy_2010_2023 |>
   filter_out(anio == 2024) |>
 
   # Ordenar columnas
-  select(anio, mes, jurisdiccion, sexo, grupo_edad, proy_pob)
+  select(anio, mes, region_deis, jurisdiccion, sexo, grupo_edad, proy_pob)
 
 
 # Exportar datos limpios -------------------------------------------------

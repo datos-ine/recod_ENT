@@ -6,7 +6,7 @@
 ### según Teixeira et al. (2021), Soares Filho et al. (2024) y GBD (2019)
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 17-04-2026 13:35
+# Última modificación: 21-04-2026 12:56
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -114,6 +114,7 @@ defun <- defun_raw |>
   mutate(
     region_deis = case_when(
       str_detect(region_deis, "Cuyo") ~ "Cuyo",
+      str_detect(region_deis, "3.NOA1.|4.NOA.") ~ "NOA1",
       str_detect(region_deis, "8.Pat.") ~ "Patagonia Norte",
       str_detect(region_deis, "9.Pat.") ~ "Patagonia Sur",
       .default = str_sub(region_deis, 3) |> str_remove("\\.")
@@ -1551,11 +1552,12 @@ recod_defun <- recod_defun |>
     jurisdiccion,
     sexo,
     grupo_edad,
+    cie10_cod,
     grupo_n1,
     grupo_n2,
-    grupo_n2_p2 = paso2.2,
-    grupo_n2_p3 = paso3.2,
-    grupo_n2_p4 = paso4.2
+    grupo_n2.2 = paso2.2,
+    grupo_n2.3 = paso3.2,
+    grupo_n2.4 = paso4.2
   ) |>
 
   # Ordenar causas nivel 2
