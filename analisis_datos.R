@@ -3,7 +3,7 @@
 ### Análisis de datos
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 23-04-2026 13:53
+# Última modificación: 23-04-2026 15:03
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -464,21 +464,26 @@ tab2 <- mod_reg |>
             ),
 
             # APC
-            APC = number(est, accuracy = .1, suffix = "%"),
+            APC = number(est, accuracy = .1, decimal.mark = ",", suffix = "%"),
 
             # 95% IC APC
             ic_apc = paste0(
               "(",
-              number(ci_95_percent_l, accuracy = 0.1),
+              number(ci_95_percent_l, accuracy = 0.1, decimal.mark = ","),
               "; ",
-              number(ci_95_percent_u, accuracy = 0.1, suffix = "%"),
+              number(
+                ci_95_percent_u,
+                accuracy = 0.1,
+                decimal.mark = ",",
+                suffix = "%"
+              ),
               ")"
             ),
 
             # AAPC solo en primer segmento
             AAPC = if_else(
               row_number() == 1,
-              percent(aapc_obj[1], accuracy = 0.1),
+              percent(aapc_obj[1], accuracy = 0.1, decimal.mark = ","),
               NA
             ),
 
@@ -487,9 +492,14 @@ tab2 <- mod_reg |>
               row_number() == 1,
               paste0(
                 "(",
-                percent(aapc_obj[3], accuracy = 0.1, suffix = ""),
+                percent(
+                  aapc_obj[3],
+                  accuracy = 0.1,
+                  decimal.mark = ",",
+                  suffix = ""
+                ),
                 "; ",
-                percent(aapc_obj[4], accuracy = 0.1),
+                percent(aapc_obj[4], accuracy = 0.1, decimal.mark = ","),
                 ")"
               ),
               NA
@@ -516,13 +526,13 @@ tab2 |>
     values = list(
       region = "Región",
       nivel = "Nivel",
-      jp = "Joinpoints",
+      jp = "JP",
       periodo = "Período",
       ic_apc = "95%IC",
       ic_aapc = "95%IC"
     )
   ) |>
   merge_v() |>
-  # hline(i = c(2,5,7,10,12, 14, 16, 18, 20, 22, 24, 27, 29, 33, 35, 37, 39, 41))
-  autofit() |> 
-  theme_vanilla()
+  autofit() |>
+  
+  theme_booktabs()
