@@ -3,7 +3,7 @@
 ### Análisis de datos
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 23-04-2026 12:53
+# Última modificación: 23-04-2026 13:53
 
 # Cargar paquetes --------------------------------------------------------
 pacman::p_load(
@@ -444,11 +444,18 @@ tab2 <- mod_reg |>
           as_tibble() |>
           clean_names()
 
-        # AAPC (NO pisar función)
+        # AAPC
         aapc_obj <- aapc(.x, parm = "anio", wrong.se = FALSE)
 
         sl |>
           mutate(
+            # Número de joinpoints
+            jp = if_else(
+              row_number() == 1,
+              nrow(.x$psi),
+              NA
+            ),
+
             # Período
             periodo = paste(
               round(head(cortes, -1)),
@@ -460,10 +467,12 @@ tab2 <- mod_reg |>
             APC = number(est, accuracy = .1, suffix = "%"),
 
             # 95% IC APC
-            ic_apc = paste(
-              percent(ci_95_percent_l, accuracy = 0.1, suffix = ""),
-              percent(ci_95_percent_u, accuracy = 0.1),
-              sep = "; "
+            ic_apc = paste0(
+              "(",
+              number(ci_95_percent_l, accuracy = 0.1),
+              "; ",
+              number(ci_95_percent_u, accuracy = 0.1, suffix = "%"),
+              ")"
             ),
 
             # AAPC solo en primer segmento
@@ -476,10 +485,12 @@ tab2 <- mod_reg |>
             # 95%IC del AAPC
             ic_aapc = if_else(
               row_number() == 1,
-              paste(
+              paste0(
+                "(",
                 percent(aapc_obj[3], accuracy = 0.1, suffix = ""),
+                "; ",
                 percent(aapc_obj[4], accuracy = 0.1),
-                sep = "; "
+                ")"
               ),
               NA
             )
@@ -492,7 +503,7 @@ tab2 <- mod_reg |>
   ) |>
 
   # Separar región y nivel
-  separate_wider_delim(id, names = c("Región", "Nivel"), delim = "_") |>
+  separate_wider_delim(id, names = c("region", "nivel"), delim = "_") |>
 
   # Descartar columnas
   select(-est, -starts_with("ci"))
@@ -501,5 +512,17 @@ tab2 <- mod_reg |>
 ## Mostrar tabla
 tab2 |>
   flextable() |>
+  set_header_labels(
+    values = list(
+      region = "Región",
+      nivel = "Nivel",
+      jp = "Joinpoints",
+      periodo = "Período",
+      ic_apc = "95%IC",
+      ic_aapc = "95%IC"
+    )
+  ) |>
   merge_v() |>
-  autofit()
+  # hline(i = c(2,5,7,10,12, 14, 16, 18, 20, 22, 24, 27, 29, 33, 35, 37, 39, 41))
+  autofit() |> 
+  theme_vanilla()
