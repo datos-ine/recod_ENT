@@ -3,25 +3,22 @@
 ### Análisis de datos
 ### Autora: Tamara Ricardo
 ### Revisor: Juan I. Irassar
-# Última modificación: 23-04-2026 15:03
 
 # Cargar paquetes --------------------------------------------------------
+# remotes::install_github("https://github.com/datos-ine/joinpointR")
+
 pacman::p_load(
-  # Mapas
-  sf,
-  tmap,
-  geoAr,
-  spdep,
-  # Gráficos
   patchwork,
   ggridges,
   scico,
   # Tablas
   flextable,
+  gtsummary,
   # Tasas estandarizadas
   PHEindicatormethods,
   # Regresión joinpoint
-  segmented,
+  # segmented,
+  joinpointR,
   # Manejo de datos
   scales,
   rio,
@@ -46,34 +43,6 @@ proy_2010_2023 <- import("clean/arg_proy_mensual_2010_2023.rds") |>
 recod_defun <- import("clean/arg_defun_mes_2010-2023_recod.rds")
 
 
-# Crear shapefile jurisdicciones -----------------------------------------
-shp_arg <- get_geo(geo = "ARGENTINA") |>
-  # Añadir ids de provincia
-  add_geo_codes() |>
-
-  # Crear columna para jurisdicción
-  mutate(
-    jurisdiccion = case_when(
-      codprov_censo == "02" ~ "CABA",
-      codprov_censo %in% c("38", "66") ~ "NOA1",
-      codprov_censo %in% c("10", "86") ~ "NOA2",
-      codprov_censo %in% c("46", "70", "74") ~ "Cuyo",
-      codprov_censo %in% c("42", "58", "62") ~ "Patagonia Norte",
-      codprov_censo %in% c("26", "78", "94") ~ "Patagonia Sur",
-      .default = name_iso
-    )
-  ) |>
-
-  ## Agrupar polígonos por jurisdicción
-  summarise(
-    geometry = st_union(geometry),
-    .by = jurisdiccion
-  )
-
-## Vecinos espaciales
-nb <- poly2nb(shp_arg, queen = TRUE)
-
-
 # Análisis exploratorio --------------------------------------------------
 ## Frecuencia defunciones por sexo
 recod_defun |>
@@ -85,14 +54,6 @@ recod_defun |>
   tabyl(grupo_edad) |>
   adorn_pct_formatting()
 
-## Frecuencia defunciones por grupo causa nivel 1
-recod_defun |>
-  tabyl(grupo_edad, grupo_n1) |>
-  adorn_totals(where = "row") |>
-  adorn_percentages() |>
-  adorn_pct_formatting()
-
-
 ## Códigos garbage más frecuentes
 recod_defun |>
   filter(grupo_n2 %in% c("GC1", "GC2")) |>
@@ -101,67 +62,67 @@ recod_defun |>
   arrange(-n) |>
   head(n = 15)
 
+## Frecuencia defunciones por grupo causa nivel 1
+recod_defun |>
+  tabyl(grupo_edad, grupo_n1) |>
+  adorn_totals(where = "row") |>
+  adorn_percentages() |>
+  adorn_pct_formatting()
+
+# Diferencias por edad
+chisq.test(recod_defun$grupo_edad, recod_defun$grupo_n1)
+
 
 ## Tabla 1 ---------------------------------------------------------------
+theme_gtsummary_language(
+  language = "es",
+  decimal.mark = ",",
+  big.mark = "."
+)
+
 ### Frecuencia defunciones por grupo etario y grupo de causas
 tab1 <- recod_defun |>
   # Seleccionar columnas
-  select(grupo_edad, grupo_n2) |>
+  select(grupo_edad, grupo_causa = grupo_n2) |>
   # Reagrupar causas GC
   mutate(
-    grupo_n2 = case_when(
-      grupo_n2 %in% c("GC1", "GC2") ~ "GC1-2",
-      grupo_n2 %in% c("GC3", "GC4") ~ "GC3-4",
-      grupo_n2 == "Diabetes" ~ "DM",
-      grupo_n2 == "Neoplasias" ~ "NPL",
-      grupo_n2 == "Homicidio" ~ "HOM",
-      grupo_n2 == "Suicidio" ~ "SUI",
-      grupo_n2 == "Tránsito" ~ "TRA",
-      .default = grupo_n2
+    grupo_causa = case_when(
+      grupo_causa %in% c("GC1", "GC2") ~ "GC1-GC2",
+      grupo_causa %in% c("GC3", "GC4") ~ "GC3-GC4",
+      .default = grupo_causa
     ) |>
 
       # Ordenar
       fct_relevel(
-        "NPL",
-        "Otras ENT",
-        "HOM",
-        "SUI",
-        "TRA",
+        "Homicidio",
+        "Suicidio",
+        "Tránsito",
         "Otras CE",
-        after = 4
+        "GC1-GC2",
+        "GC3-GC4",
+        after = Inf
       )
   ) |>
 
-  # Crear tabla
-  tabyl(grupo_edad, grupo_n2) |>
-  adorn_totals(where = "row") |>
-  adorn_percentages() |>
-  mutate(across(.cols = where(is.numeric), .fns = ~ round(.x * 100, 1))) |>
-
-  # Formato tabla
-  flextable() |>
-  colformat_num(
-    decimal.mark = ",",
-    big.mark = ".",
+  # Tabla 2x2
+  tbl_summary(
+    by = grupo_edad,
+    include = grupo_causa,
+    digits = list(grupo_causa ~ c(0, 1)),
+    label = list(grupo_causa = "")
   ) |>
-  align(j = -1, align = "center", part = "all") |>
-  autofit() |>
+  add_p() |>
 
-  # Encabezado
-  add_header_row(
-    values = c("Grupo etario", "CMNN", "ENT", "CE", "GC"),
-    colwidths = c(1, 1, 5, 4, 2)
+  # Opciones tabla
+  bold_labels() |>
+  modify_header(
+    label = "**Grupo causa**",
+    p.value = "**P**",
+    all_stat_cols() ~ "{level} ({style_percent(p, digits = 1)}%)"
   ) |>
-  merge_at(j = 1, part = "header") |>
-  merge_at(j = 2, part = "header") |>
-
-  # Pie de tabla
-  add_footer_row(
-    values = c(
-      "DM: diabetes mellitus; ECV: enfermedades cardiovasculares; ERC: enfermedades respiratorias crónicas; NPL: neoplasias; HOM: homicidio; SUI: suicidio; TRA: accidentes de tránsito; GC: causas garbage."
-    ),
-    colwidths = 13
-  )
+  modify_spanning_header(all_stat_cols() ~ "**Grupo etario**") |>
+  remove_footnote_header(columns = all_stat_cols()) |>
+  modify_indent(columns = label, indent = 0L)
 
 
 # Evolución temporal tasas GC (total país) -------------------------------
@@ -195,66 +156,27 @@ datos_jp <- recod_defun |>
 
 
 ## Regresión joinpoint ---------------------------------------------------
-mod <- datos_jp |>
-  group_by(grupo_n2) |>
-  group_split() |>
-  set_names(levels(datos_jp$grupo_n2)) |>
-  map(
-    ~ {
-      lm(log(value) ~ anio, data = .x) |>
-        selgmented(
-          seg.Z = ~anio,
-          Kmax = 3,
-          type = "bic",
-          th = 2,
-          plot.ic = TRUE
-        )
-    }
-  )
-
-
-### GC1 -----
-# joinpoints
-summary(mod$GC1)
-
-# APC
-slope(mod$GC1, APC = TRUE, digits = 2)
-
-# AAPC
-aapc(mod$GC1, wrong.se = FALSE) |>
-  percent()
-
-
-### GC2 -----
-# joinpoints
-summary(mod$GC2)
-
-# APC
-slope(mod$GC2, APC = TRUE, digits = 2)
-
-# AAPC
-aapc(mod$GC2) |>
-  percent()
-
-
-### GC3 -----
-epikit::fmt_ci(
-  e = (exp(mod$GC3$coefficients[2]) - 1) * 100,
-  l = (exp(confint(mod$GC3)[2, 1]) - 1) * 100,
-  u = (exp(confint(mod$GC3)[2, 2]) - 1) * 100
+mod <- model_jp(
+  data = datos_jp,
+  value = "value",
+  time = "anio",
+  group = "grupo_n2",
+  k = 3
 )
 
+## Tabla
+summary_jp(mod, ft = TRUE, var1 = "Nivel")
 
-### GC4 -----
-# joinpoints
-summary(mod$GC4)
+## APCs
+get_apc(mod = mod$GC1)
+get_apc(mod = mod$GC2)
+get_apc(mod = mod$GC4)
 
-# APC
-slope(mod$GC4, APC = TRUE, digits = 2)
-
-# AAPC
-aapc(mod$GC4) |>
-  percent()
+## AAPCs
+get_aapc(mod = mod$GC1, show_ci = TRUE)
+get_aapc(mod = mod$GC2, show_ci = TRUE)
+get_aapc(mod = mod$GC3, show_ci = TRUE)
+get_aapc(mod = mod$GC4, show_ci = TRUE)
 
 
 ## Figura 2 --------------------------------------------------------------
@@ -268,11 +190,11 @@ g1 <- datos_jp |>
     color = NA,
     alpha = 0.75,
     point_color = "grey40",
-    point_alpha = 0.5
+    point_alpha = 0.5,
+    scale = 5
   ) +
 
   # Escalas
-  scale_fill_scico_d(palette = "managua", name = NULL) +
   scale_x_continuous(limits = c(0, 150)) +
 
   # Layout
@@ -302,30 +224,34 @@ g2 <- mod |>
       grupo_n2 == "GC2" & anio < 2018 ~ mod$GC2$psi[1, "Est."],
       grupo_n2 == "GC2" & anio >= 2018 ~ mod$GC2$psi[2, "Est."],
       grupo_n2 == "GC4" ~ mod$GC4$psi[, "Est."],
-    )
+    ) |>
+      round()
   ) |>
 
   # Gráfico
   ggplot(aes(x = anio, y = obs, color = grupo_n2)) +
-  facet_wrap(~grupo_n2) +
 
   # Geometrías
   geom_point(size = 2.5, alpha = .75) +
-  geom_line(aes(y = fit), lwd = 1.25) +
-  geom_vline(aes(xintercept = jp), color = "darkgrey", lwd = 1) +
+  geom_line(aes(y = fit), lwd = 1) +
+  geom_vline(aes(xintercept = jp), color = "darkgrey", lwd = 2, alpha = .5) +
 
   # Escalas
-  scale_color_scico_d(palette = "managua") +
-  scale_x_continuous(n.breaks = 7) +
-  labs(x = "Año", y = "Tasa est. (100.000 hab.)")
+  scale_x_continuous(n.breaks = 10) +
+  labs(x = NULL, y = "Tasa est. (100.000 hab.)")
 
 
 ### Unir gráficos -----
 fig2 <- g1 /
   g2 &
   # Layout
+  scale_fill_scico_d(
+    palette = "managua",
+    aesthetics = c("colour", "fill"),
+    name = NULL
+  ) &
   theme_minimal() &
-  theme(legend.position = "none") &
+  theme(legend.position = "bottom") &
   plot_annotation(tag_levels = "A")
 
 
@@ -360,8 +286,11 @@ datos_jp_reg <- recod_defun |>
   # Añadir población estándar 2022
   left_join(pob_est_2022) |>
 
+  # Crear variable de agrupamiento
+  unite(c(region_deis, grupo_n2), col = "region_grupo") |>
+
   # Calcular tasa estandarizada
-  group_by(anio, region_deis, grupo_n2) |>
+  group_by(anio, region_grupo) |>
   calculate_dsr(
     x = n,
     n = pob,
@@ -370,8 +299,22 @@ datos_jp_reg <- recod_defun |>
   )
 
 
-## Figura 3 --------------------------------------------------------------
-fig3 <- datos_jp_reg |>
+## Regresión joinpoint ---------------------------------------------------
+mod_reg <- model_jp(
+  datos_jp_reg,
+  value = "value",
+  time = "anio",
+  group = "region_grupo",
+  k = 3
+)
+
+
+## Tabla 2 ---------------------------------------------------------------
+tab2 <- summary_jp(mod_reg, ft = TRUE, var1 = "Región", var2 = "Nivel")
+
+
+## Figura S2 -------------------------------------------------------------
+figs2 <- datos_jp_reg |>
   ggplot(aes(x = value, y = grupo_n2, fill = grupo_n2)) +
   facet_wrap(~region_deis, ncol = 2) +
   geom_density_ridges(
@@ -394,145 +337,10 @@ fig3 <- datos_jp_reg |>
 
 ### Guardar gráfico -----
 ggsave(
-  fig3,
-  filename = "Figura3.png",
+  figs2,
+  filename = "FiguraS2.png",
   width = 16,
-  height = 16,
+  height = 18,
   units = "cm",
   dpi = 300
 )
-
-
-## Regresión joinpoint ---------------------------------------------------
-mod_reg <- datos_jp_reg |>
-  group_by(region_deis, grupo_n2) |>
-  group_split() |>
-  set_names(
-    datos_jp_reg |>
-      distinct(region_deis, grupo_n2) |>
-      unite("id", region_deis, grupo_n2, remove = FALSE) |>
-      pull(id)
-  ) |>
-  map(
-    ~ {
-      lm(log(value) ~ anio, data = .x) |>
-        selgmented(
-          seg.Z = ~anio,
-          Kmax = 3,
-          type = "bic",
-          th = 2,
-          plot.ic = T
-        )
-    }
-  )
-
-
-## Tabla 2 ---------------------------------------------------------------
-## Generar tabla
-tab2 <- mod_reg |>
-  map_dfr(
-    ~ {
-      if ("segmented" %in% class(.x)) {
-        cortes <- sort(c(
-          min(.x$model$anio),
-          .x$psi[, "Est."],
-          max(.x$model$anio)
-        ))
-
-        # APC
-        sl <- slope(.x, APC = TRUE, digits = 2)$anio |>
-          as_tibble() |>
-          clean_names()
-
-        # AAPC
-        aapc_obj <- aapc(.x, parm = "anio", wrong.se = FALSE)
-
-        sl |>
-          mutate(
-            # Número de joinpoints
-            jp = if_else(
-              row_number() == 1,
-              nrow(.x$psi),
-              NA
-            ),
-
-            # Período
-            periodo = paste(
-              round(head(cortes, -1)),
-              round(tail(cortes, -1)),
-              sep = "-"
-            ),
-
-            # APC
-            APC = number(est, accuracy = .1, decimal.mark = ",", suffix = "%"),
-
-            # 95% IC APC
-            ic_apc = paste0(
-              "(",
-              number(ci_95_percent_l, accuracy = 0.1, decimal.mark = ","),
-              "; ",
-              number(
-                ci_95_percent_u,
-                accuracy = 0.1,
-                decimal.mark = ",",
-                suffix = "%"
-              ),
-              ")"
-            ),
-
-            # AAPC solo en primer segmento
-            AAPC = if_else(
-              row_number() == 1,
-              percent(aapc_obj[1], accuracy = 0.1, decimal.mark = ","),
-              NA
-            ),
-
-            # 95%IC del AAPC
-            ic_aapc = if_else(
-              row_number() == 1,
-              paste0(
-                "(",
-                percent(
-                  aapc_obj[3],
-                  accuracy = 0.1,
-                  decimal.mark = ",",
-                  suffix = ""
-                ),
-                "; ",
-                percent(aapc_obj[4], accuracy = 0.1, decimal.mark = ","),
-                ")"
-              ),
-              NA
-            )
-          )
-      } else {
-        tibble()
-      }
-    },
-    .id = "id"
-  ) |>
-
-  # Separar región y nivel
-  separate_wider_delim(id, names = c("region", "nivel"), delim = "_") |>
-
-  # Descartar columnas
-  select(-est, -starts_with("ci"))
-
-
-## Mostrar tabla
-tab2 |>
-  flextable() |>
-  set_header_labels(
-    values = list(
-      region = "Región",
-      nivel = "Nivel",
-      jp = "JP",
-      periodo = "Período",
-      ic_apc = "95%IC",
-      ic_aapc = "95%IC"
-    )
-  ) |>
-  merge_v() |>
-  autofit() |>
-  
-  theme_booktabs()
